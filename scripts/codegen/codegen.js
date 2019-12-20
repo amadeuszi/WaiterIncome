@@ -6,16 +6,17 @@ var fse = require("fs-extra");
 
 /*VARIABLES*/
 var WORK_DIR = 'scripts/codegen/';
-var SWAGGER_FILE_NAME = 'spec.json';
+var SWAGGER_FILE_NAME = 'waiter-income/scripts/codegen/spec.json';
 var OUTPUT_DIR = 'src/generated/client/';
-var path = WORK_DIR + 'nodegit';
+var REPO_FILESYSTEM_PATH = WORK_DIR + 'waiter-income';
+var REPO_URL = "https://github.com/amadeuszi/waiter-income.git";
 
 
 /*RUN SCRIPT*/
-if (fs.existsSync(path)) {
-    gitPull(path, generateSourceCodeFromSwagger);
+if (fs.existsSync(REPO_FILESYSTEM_PATH)) {
+    gitPull(REPO_FILESYSTEM_PATH, generateSourceCodeFromSwagger);
 } else {
-    gitClone(path, "https://github.com/nodegit/nodegit.git", generateSourceCodeFromSwagger);
+    gitClone(REPO_FILESYSTEM_PATH, REPO_URL, generateSourceCodeFromSwagger);
 }
 
 
