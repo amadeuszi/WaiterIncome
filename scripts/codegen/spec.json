@@ -29,7 +29,7 @@
     },
     {
       "name": "user",
-      "description": "Access to Petstore orders",
+      "description": "Access to Petstore ord",
       "externalDocs": {
         "description": "Find out more about our store",
         "url": "http://swagger.io"
