@@ -2,26 +2,34 @@ var fs = require('fs');
 var CodeGen = require('swagger-typescript-codegen').CodeGen;
 var nodegit = require("nodegit");
 var fse = require("fs-extra");
+yaml = require('js-yaml');
 
 
 /*VARIABLES*/
 var WORK_DIR = 'scripts/codegen/';
-var SWAGGER_FILE_NAME = 'waiter-income/scripts/codegen/spec.json';
+var PRODUCT_NAMES = ['rule-engine', 'retail-lending', 'product-catalogue'];
+var getSwaggerFileName = productName => productName + '/src/main/resources/contract/v1.yaml';
 var OUTPUT_DIR = 'src/generated/client/';
-var REPO_FILESYSTEM_PATH = WORK_DIR + 'waiter-income';
-var REPO_URL = "https://github.com/amadeuszi/waiter-income.git";
+var getRepoFilesystemPath = productName => WORK_DIR + productName;
+var getRepoUrl = productName => `git@gitlab.starboost.banka.rba:applications/boosters/${productName}.git`;
 
 
 /*RUN SCRIPT*/
-if (fs.existsSync(REPO_FILESYSTEM_PATH)) {
-    gitPull(REPO_FILESYSTEM_PATH, generateSourceCodeFromSwagger);
-} else {
-    gitClone(REPO_FILESYSTEM_PATH, REPO_URL, generateSourceCodeFromSwagger);
+function generateCodeForProduct(productName) {
+    if (fs.existsSync(getRepoFilesystemPath(productName))) {
+        gitPull(getRepoFilesystemPath(productName), generateSourceCodeFromSwagger, productName);
+    } else {
+        gitClone(getRepoFilesystemPath(productName), getRepoUrl(productName), generateSourceCodeFromSwagger, productName);
+    }
+}
+
+for (var productName of PRODUCT_NAMES) {
+    generateCodeForProduct(productName);
 }
 
 
 /*SCRIPT*/
-function generateSourceCodeByTags(swagger) {
+function generateSourceCodeByTags(swagger, productName) {
     for (var group of groupPathsByTags(swagger)) {
         var oneGroupOfPaths = {};
         var tagName = '';
@@ -30,11 +38,39 @@ function generateSourceCodeByTags(swagger) {
             tagName = pathRepresentation.tag;
         }
         swagger.paths = oneGroupOfPaths;
-        generateSourceCode(tagName, swagger);
+        generateSourceCode(tagName, swagger, productName);
     }
 }
 
-function generateSourceCode(generatedClassName, swagger) {
+function join(path1, path2) {
+    path1 = path1 || '';
+    path2 = path2 || '';
+    var lastChar = path1.charAt(path1.length - 1);
+    var firstChar = path2.charAt(path2.length - 1);
+    if (lastChar === '/' && firstChar === '/') {
+        path1 = path1.substr(0, path1.length - 1);
+    }
+    if (lastChar !== '/' && firstChar !== '/') {
+        path1 = path1 + '/';
+    }
+    return path1 + path2;
+}
+
+const HOST_MAPPING = {
+    ['product-catalogue']:  'product-catalogue.dev.apps.banka.rba:80',
+    ['retail-lending']:  'retail-lending.dev.apps.banka.rba:80',
+    ['rule-engine']:  'rule-engine.dev.apps.banka.rba:80',
+};
+
+function modifyBasePath(swagger, productName) {
+    var basePath2 = swagger.basePath || '';
+    swagger.basePath = join(basePath2, 'a');
+    swagger.basePath = swagger.basePath.substr(0, swagger.basePath.length - 1);
+    swagger.host = HOST_MAPPING[productName];
+}
+
+function generateSourceCode(generatedClassName, swagger, productName) {
+    modifyBasePath(swagger, productName);
     var generatedCode = CodeGen.getTypescriptCode({
         className: generatedClassName,
         swagger: swagger
@@ -43,12 +79,12 @@ function generateSourceCode(generatedClassName, swagger) {
     writeToFile(outputFilePath, generatedCode);
 }
 
-function generateSourceCodeFromSwagger(swaggerFileName) {
+function generateSourceCodeFromSwagger(swaggerFileName, productName) {
     console.log('JAVASCRIPT CODE GENERATION FROM SWAGGER');
     console.log('--------------------------------------');
     console.log('Generated files: ');
     var swagger = readFileToJSON(WORK_DIR + swaggerFileName, 'UTF-8');
-    generateSourceCodeByTags(swagger, swaggerFileName);
+    generateSourceCodeByTags(swagger, productName);
     console.log('--------------------------------------');
     console.log('JAVASCRIPT CODE GENERATION COMPLETED');
 }
@@ -56,7 +92,8 @@ function generateSourceCodeFromSwagger(swaggerFileName) {
 
 /*HELPER FUNCTIONS*/
 function readFileToJSON(filePath) {
-    return JSON.parse(fs.readFileSync(filePath, 'UTF-8'));
+    var swagger = yaml.safeLoad(fs.readFileSync(filePath, 'UTF-8'));
+    return yaml.safeLoad(fs.readFileSync(filePath, 'UTF-8'));
 }
 
 function writeToFile(fileName, content) {
@@ -130,7 +167,7 @@ function groupPathsByTags(swagger) {
     return result;
 }
 
-function gitClone(filesystemPath, repoUrl, callbackFunction) {
+function gitClone(filesystemPath, repoUrl, callbackFunction, productName) {
     fse.remove(filesystemPath).then(function () {
         var entry;
 
@@ -140,16 +177,17 @@ function gitClone(filesystemPath, repoUrl, callbackFunction) {
             {
                 fetchOpts: {
                     callbacks: {
+                        credentials: function (url, userName) {
+                            return nodegit.Cred.sshKeyFromAgent(userName);
+                        },
                         certificateCheck: function () {
-                            // github will fail cert check on some OSX machines
-                            // this overrides that check
                             return 0;
                         }
                     }
                 }
-            })
+            }).catch(function(err) { console.log(err); })
             .then(function (repo) {
-                return repo.getMasterCommit();
+                return repo.checkoutBranch('dev');
             })
             .then(function (commit) {
                 return commit.getEntry("README.md");
@@ -159,14 +197,16 @@ function gitClone(filesystemPath, repoUrl, callbackFunction) {
                 return entry.getBlob();
             })
             .done(function (blob) {
+                console.log('');
+                console.log('');
+                console.log('Project: ' + productName);
                 console.log('Repo cloned');
-                callbackFunction(SWAGGER_FILE_NAME);
+                callbackFunction(getSwaggerFileName(productName), productName);
             });
     });
 }
 
-function gitPull(repoFilePath, functionCallback) {
-
+function gitPull(repoFilePath, functionCallback, productName) {
     var repository;
 
     // Open a repository that needs to be fetched and fast-forwarded
@@ -188,10 +228,13 @@ function gitPull(repoFilePath, functionCallback) {
         // Now that we're finished fetching, go ahead and merge our local branch
         // with the new one
         .then(function () {
-            return repository.mergeBranches("master", "origin/master");
+            return repository.mergeBranches("dev", "origin/dev");
         })
         .done(function () {
+            console.log('');
+            console.log('');
+            console.log('Project: ' + productName);
             console.log("Git pull done!");
-            functionCallback(SWAGGER_FILE_NAME);
+            functionCallback(getSwaggerFileName(productName), productName);
         });
 }

@@ -39,8 +39,10 @@
     ]
   },
   "devDependencies": {
+    "@types/superagent": "^4.1.4",
     "fs": "0.0.1-security",
     "fs-extra": "^8.1.0",
+    "js-yaml": "^3.13.1",
     "node-emoji": "^1.10.0",
     "nodegit": "^0.26.3",
     "random-emoji": "^1.0.2",
